@@ -79,7 +79,7 @@ void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int *
 			
 			//cout << "rank " << rank << ": received " << items_received << " ints, sending ACK to rank 0" << endl;
 			
-			cout << slot << " " << rank << " " << get_us() - slot_start << endl;
+			// cout << slot << " " << rank << " " << get_us() - slot_start << endl;
 
 			MPI_Send(&items_received, 1, MPI_INT,
 				0, 0, MPI_COMM_WORLD);

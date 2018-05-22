@@ -10,8 +10,4 @@
 
 export VT_MAX_FLUSHES=0
 
-module purge
-module load gnu/4.9.2
-module load openmpi_ib/1.8.4
-
 ibrun ./rotor_test
