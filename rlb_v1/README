@@ -1,0 +1,7 @@
+Instructions for Comet:
+
+Compile:
+$ ./compile.sh
+
+Run:
+$ sbatch go.sb

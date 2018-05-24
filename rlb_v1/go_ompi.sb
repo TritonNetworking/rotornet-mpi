@@ -14,13 +14,13 @@
 module purge
 
 # for running with Intel 2018 toolchain:
-module load gnutools
-export MODULEPATH=/share/apps/compute/modulefiles:$MODULEPATH
-module load intel/2018.1.163
-module load intelmpi/2018.1.163
+#module load gnutools
+#export MODULEPATH=/share/apps/compute/modulefiles:$MODULEPATH
+#module load intel/2018.1.163
+#module load intelmpi/2018.1.163
 
 # for running with OpenMPI toolchain:
-#module load gnu/4.9.2
-#module load openmpi_ib/1.8.4
+module load gnu/4.9.2
+module load openmpi_ib/1.8.4
 
-mpirun ./rotor_test
+ibrun ./rotor_test

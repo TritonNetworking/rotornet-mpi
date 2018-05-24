@@ -10,10 +10,23 @@
 #include <algorithm>
 
 //const int ITEM_COUNT = (1024 * 1024 * 64); // # ints = 268435456 bytes
-const int ITEM_COUNT = 1;
+//const int ITEM_COUNT = 1; // = 4 B
+//const int ITEM_COUNT = 125000; // = 500 kB
+//const int ITEM_COUNT = 1250000; // = 5 MB
+//const int ITEM_COUNT = 12500000; // = 50 MB
+//const int ITEM_COUNT = 62500000; // = 250 MB
 
-const int64_t run_us = 20099999; // total runtime, microseconds
-const int64_t slot_us = 100000; // slot time, microseconds
+// best for IntelMPI 2018:
+const int ITEM_COUNT = 32768; // = 131 kB
+
+//const int64_t run_us = 1000999; // total runtime, microseconds
+//const int64_t slot_us = 1000; // slot time, microseconds
+
+//const int64_t run_us = 10009999; // total runtime, microseconds
+//const int64_t slot_us = 10000; // slot time, microseconds
+
+const int64_t run_us = 50049; // total runtime, microseconds
+const int64_t slot_us = 50; // slot time, microseconds
 
 void rotor_test(int size, int rank);
 
@@ -47,6 +60,7 @@ int main(int argc, char* argv[])
 
 void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int * recvbuf, vector<vector<int>> sendto, vector<vector<int>> recvfrom) {
 
+	// debug:
 	int64_t slot_start = get_us(); // slot start time (us)
 
 	MPI_Request r_handle; // receive handle
@@ -69,20 +83,27 @@ void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int *
 	// poll for receive complete
 	int recv_done = 0;
 	MPI_Status status;
-	int items_received = 0;
+	//int items_received = 0;
 	while (recv_done == 0) {
 		MPI_Test(&r_handle, &recv_done, &status);
 		if (recv_done == 1) {
 			// get how many ints were received:
-			MPI_Get_count(&status, MPI_INT, &items_received);
+			//MPI_Get_count(&status, MPI_INT, &items_received);
 			// block on ACK send:
 			
-			//cout << "rank " << rank << ": received " << items_received << " ints, sending ACK to rank 0" << endl;
-			
+			// debug:
+			//cout << "rank " << rank << ": received " << items_received << " ints, sending ACK to rank 0" << endl			
 			// cout << slot << " " << rank << " " << get_us() - slot_start << endl;
 
-			MPI_Send(&items_received, 1, MPI_INT,
+			int64_t slot_end = get_us();
+			int diff = slot_end - slot_start;
+			
+			MPI_Send(&diff, 1, MPI_INT,
 				0, 0, MPI_COMM_WORLD);
+
+			//MPI_Send(&items_received, 1, MPI_INT,
+			//	0, 0, MPI_COMM_WORLD);
+
 		}
 	}
 
@@ -143,6 +164,10 @@ void rotor_test(int size, int rank) {
 		for (int i = 0; i < size - 1; i++) {
 			items_acked[i].resize(Nslots);
 			times_acked[i].resize(Nslots);
+			for (int j = 0; j < Nslots - 1; j++) {
+				items_acked[i][j] = 0;
+				times_acked[i][j] = 0;
+			}
 		}
 		vector<MPI_Request> r_handles(size - 1); // vector of receive handles
 		int Numacked;
@@ -151,7 +176,8 @@ void rotor_test(int size, int rank) {
 		// start RotorLB sync clock:
 		int64_t start = get_us(); // global sync start time (us)
 		int64_t current = get_us();
-		while (current - start < run_us) {
+		//while (current - start < run_us) { // this leads to hang if some slots run over time
+		while (slot < Nslots - 1) {
 			prev_slot = (current - start) / slot_us;
 			current = get_us();
 			this_slot = (current - start) / slot_us;
@@ -174,6 +200,7 @@ void rotor_test(int size, int rank) {
 				for (int i = 0; i < size - 1; i++)
 					recv_done[i] = 0;
 				
+				// debug:
 				//cout << "SYNC NODE: started polling " << get_us() - current << " us into slot..." << endl;
 	
 				while (Numacked < size - 1) {
@@ -183,7 +210,6 @@ void rotor_test(int size, int rank) {
 							if (recv_done[i] == 1) {
 								times_acked[i][slot] = get_us() - current;
 								Numacked++;
-								//cout << "   ACK " << Numacked << ", received from rank " << i+1 << " at " << times_acked[i][slot] << " us into the slot." << endl;
 							}
 						}
 					}
@@ -192,16 +218,17 @@ void rotor_test(int size, int rank) {
 		}
 
 		// print the timing output to console:
-		cout << "Integers ACKed [rank, slot]:" << endl;
+		//cout << "Integers ACKed [rank, slot]:" << endl;
+		cout << "Comm node times to send ACK [rank, slot]:" << endl;
 		for (int i = 0; i < (size - 1); i++) {
-			cout << "rank " << i + 1 << ": ";
+			//cout << "rank " << i + 1 << ": ";
 			for (int j = 0; j < Nslots; j++)
 				cout << items_acked[i][j] << " ";
 			cout << endl;
 		}
-		cout << endl << "Times ACKed (relative to slot start) [rank, slot]:" << endl;
+		cout << endl << "Times ACKs received at sync node (relative to slot start) [rank, slot]:" << endl;
 		for (int i = 0; i < (size - 1); i++) {
-			cout << "rank " << i + 1 << ": ";
+			//cout << "rank " << i + 1 << ": ";
 			for (int j = 0; j < Nslots; j++)
 				cout << times_acked[i][j] << " ";
 			cout << endl;

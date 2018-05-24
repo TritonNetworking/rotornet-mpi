@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name="rotor_test"
+#SBATCH --job-name="hellocomet"
 #SBATCH --output="output.%j.out"
 #SBATCH --partition=compute
-#SBATCH --nodes 5
+#SBATCH --nodes 2
 #SBATCH --ntasks-per-node=1
 #SBATCH --export=ALL
-#SBATCH -t 00:02:00
+#SBATCH -t 01:00:00
 #SBATCH -A ddp308
 
 # for tracing:
@@ -23,4 +23,4 @@ module load intelmpi/2018.1.163
 #module load gnu/4.9.2
 #module load openmpi_ib/1.8.4
 
-mpirun ./rotor_test
+mpirun ./hellocomet
