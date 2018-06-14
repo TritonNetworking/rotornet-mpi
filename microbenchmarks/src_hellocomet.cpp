@@ -6,6 +6,10 @@
 #include <vector>
 
 const int NUM_ITERS = 100;
+const int WAIT = 1; // time to wait between sends in microseconds
+
+const int ITEM_COUNT = 1;
+
 //const int ITEM_COUNT = (1024 * 1024 * 64);
 //const int ITEM_COUNT = 1; // 4 B
 //const int ITEM_COUNT = 12; // 48 B
@@ -17,10 +21,9 @@ const int NUM_ITERS = 100;
 //const int ITEM_COUNT = 12500000; // 50 MB
 //const int ITEM_COUNT = 125000000; // 500 MB
 
-const int ITEM_COUNT = 1;
-
-
 void latency_test(int size, int rank);
+void cycle_receiver_test(int size, int rank);
+void delayed_message_stream_test(int size, int rank);
 void throughput_test(int size, int rank);
 void throughput_vect_test(int size, int rank);
 void allgather_test(int size, int rank);
@@ -46,9 +49,12 @@ int main(int argc, char* argv[])
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	// latency_test(size, rank);
-	//throughput_test(size, rank);
-	throughput_vect_test(size, rank); // multiple tests
+	//latency_test(size, rank); // ping pong latency between sender & receiver
+	cycle_receiver_test(size, rank); // cycle through different receivers	
+	//delayed_message_stream_test(size,rank); // send, wait, send, wait, ...
+	//throughput_vect_test(size, rank); // sweep over multiple message sizes
+	
+	// throughput_test(size, rank);
 	// allgather_test(size, rank);
 	// broadcast_test(size, rank);
 
@@ -70,7 +76,8 @@ void latency_test(int size, int rank) {
 					 MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 			auto end = steady_clock::now();
 
-			cout << "Iter " << i << ": " << duration_cast<microseconds>(end - begin).count() << " us" << endl;
+			//cout << "Iter " << i << ": " << duration_cast<microseconds>(end - begin).count() << " us" << endl;
+			cout << duration_cast<microseconds>(end - begin).count() << endl;
 		}
 
 	} else {
@@ -85,6 +92,142 @@ void latency_test(int size, int rank) {
 			    /* tag */ 0, MPI_COMM_WORLD);
 		}
 	}
+}
+
+void cycle_receiver_test(int size, int rank) {
+
+	int numints = 262144; // set the message size
+	// for reference, 262144 ints = 1 MB messages
+
+	// construct the send/receive buffer:
+	int * buf = new int[numints];
+	for (int i = 0; i < numints; i++) {
+		buf[i] = i;
+	}
+
+	int64_t start, stop;
+	vector<int> times(NUM_ITERS);
+
+	int Nreceivers = 2;
+	vector<int> receivers(Nreceivers);
+	for (int i = 0; i < Nreceivers; i++)
+		receivers[i] = i + 1; // receiving rank
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	for (size_t i = 0; i < NUM_ITERS; i++) {
+
+		int current_receiver = receivers[i % Nreceivers];
+
+		if (rank == 0) {
+
+			start = get_us();
+
+			int items_acked = 0;
+
+			MPI_Send(buf, numints, MPI_INT, /* dst */ current_receiver, /* tag */ 0, MPI_COMM_WORLD);
+			MPI_Recv(&items_acked, 1, MPI_INT, /* source */ current_receiver,
+					 MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			
+			stop = get_us();
+			times[i] = stop - start; // record the time it took
+
+			assert(items_acked >= 0);
+
+			// poll over the wait period:
+			start = get_us();
+			stop = get_us();
+			while ((stop - start) < WAIT){
+				stop = get_us();
+			}
+		} else if (rank == current_receiver) {
+		
+			int items_received = 0;
+			MPI_Status status;
+
+			MPI_Recv(buf, numints, MPI_INT, /* source */ 0,
+				MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+			MPI_Get_count(&status, MPI_INT, &items_received);
+
+			MPI_Send(&items_received, 1, MPI_INT, /* dst */ 0,
+			    /* tag */ 0, MPI_COMM_WORLD);
+		}
+	}
+
+	if (rank == 0) {
+		// print the timing output to console:
+		//cout << "Runs in microseconds:" << endl;
+		for (int i = 0; i < NUM_ITERS; i++)
+			cout << times[i] << endl;
+	}
+
+}
+
+
+void delayed_message_stream_test(int size, int rank) {
+	
+	int numints = 262144; // set the message size
+	// for reference, 262144 ints = 1 MB messages
+
+	// construct the send/receive buffer:
+	int * buf = new int[numints];
+	for (int i = 0; i < numints; i++) {
+		buf[i] = i;
+	}
+
+	int64_t start, stop;
+	vector<int> times(NUM_ITERS);
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	if (rank == 0) {
+
+		for (size_t i = 0; i < NUM_ITERS; i++) {
+	
+			start = get_us();
+
+			int items_acked = 0;
+
+			MPI_Send(buf, numints, MPI_INT, /* dst */ 1, /* tag */ 0, MPI_COMM_WORLD);
+			MPI_Recv(&items_acked, 1, MPI_INT, /* source */ 1,
+					 MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+			
+			stop = get_us();
+			times[i] = stop - start; // record the time it took
+
+			assert(items_acked >= 0);
+
+			// poll over the wait period:
+			start = get_us();
+			stop = get_us();
+			while ((stop - start) < WAIT){
+				stop = get_us();
+			}
+		}
+
+		// print the timing output to console:
+		//cout << "Runs in microseconds:" << endl;
+		for (int i = 0; i < NUM_ITERS; i++)
+			cout << times[i] << endl;
+
+	} else {
+		assert(rank == 1);
+
+		for (size_t i = 0; i < NUM_ITERS; i++) {
+			int items_received = 0;
+			MPI_Status status;
+
+			MPI_Recv(buf, numints, MPI_INT, /* source */ 0,
+				MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+			MPI_Get_count(&status, MPI_INT, &items_received);
+
+			MPI_Send(&items_received, 1, MPI_INT, /* dst */ 0,
+			    /* tag */ 0, MPI_COMM_WORLD);
+		}
+	}
+
 }
 
 void throughput_test(int size, int rank) {
@@ -151,72 +294,64 @@ void throughput_test(int size, int rank) {
 void throughput_vect_test(int size, int rank) {
 
 	int seed = 1;
-	vector<int> ITEM_COUNT_VECT(28);
+	int maxpow = 24; // 28
+	vector<int> ITEM_COUNT_VECT(maxpow);
 	ITEM_COUNT_VECT[0] = seed;
-	for (int i = 1; i < 28; i++)
+	for (int i = 1; i < maxpow; i++)
 		ITEM_COUNT_VECT[i] = ITEM_COUNT_VECT[i-1] * 2;
 
 	int64_t start, stop;
 	vector<vector<int>> times(NUM_ITERS);
-	for (int i = 0; i < NUM_ITERS; i++)
+	for (int i = 0; i < NUM_ITERS; i++) {
 		times[i].resize(ITEM_COUNT_VECT.size());
+		for (int j = 0; j < (int)ITEM_COUNT_VECT.size(); j++)
+			times[i][j] = 0; // write to entire matrix
+	}
 
 	for (int ii = 0; ii < (int)ITEM_COUNT_VECT.size(); ii++) {
 	
-	int * buf = new int[ITEM_COUNT_VECT[ii]];
-
-	/* initialize the message */
-	for (int i = 0; i < (int)ITEM_COUNT_VECT[ii]; i++) {
-		buf[i] = i;
-	}
+		int * buf = new int[ITEM_COUNT_VECT[ii]]; // allocate the send / receive buffers
+		// initialize the message
+		for (int i = 0; i < (int)ITEM_COUNT_VECT[ii]; i++) {
+			buf[i] = i;
+		}
 	
-	MPI_Barrier(MPI_COMM_WORLD);
+		MPI_Barrier(MPI_COMM_WORLD);
 
-	if (rank == 0) {
-
-		//auto begin = steady_clock::now();
-		for (size_t i = 0; i < NUM_ITERS; i++) {
+		if (rank == 0) {
+			for (size_t i = 0; i < NUM_ITERS; i++) {
 	
-			start = get_us();
-
-			int items_acked = 0;
-
-			MPI_Send(buf, ITEM_COUNT_VECT[ii], MPI_INT, /* dst */ 1, /* tag */ 0, MPI_COMM_WORLD);
-			MPI_Recv(&items_acked, 1, MPI_INT, /* source */ 1,
+				start = get_us();
+				int items_acked = 0;
+				MPI_Send(buf, ITEM_COUNT_VECT[ii], MPI_INT, /* dst */ 1, /* tag */ 0, MPI_COMM_WORLD);
+				MPI_Recv(&items_acked, 1, MPI_INT, /* source */ 1,
 					 MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-			
-			stop = get_us();
-			times[i][ii] = stop - start; // record the time it took
+				stop = get_us();
+				times[i][ii] = stop - start; // record the time it took
 
-			assert(items_acked >= 0);
-			if (items_acked != ITEM_COUNT_VECT[ii]) {
-				cout << "Only acked " << items_acked << " instead of " << ITEM_COUNT << endl;
+				//assert(items_acked >= 0);
+				//if (items_acked != ITEM_COUNT_VECT[ii]) {
+				//	cout << "Only acked " << items_acked << " instead of " << ITEM_COUNT << endl;
+				//}
+			}
+		} else {
+			assert(rank == 1);
+			for (size_t i = 0; i < NUM_ITERS; i++) {
+				
+				int items_received = 0;
+				MPI_Status status;
+				MPI_Recv(buf, ITEM_COUNT_VECT[ii], MPI_INT, /* source */ 0,
+					MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+				MPI_Get_count(&status, MPI_INT, &items_received);
+				MPI_Send(&items_received, 1, MPI_INT, /* dst */ 0,
+					/* tag */ 0, MPI_COMM_WORLD);
 			}
 		}
-		//auto end = steady_clock::now();
-		//cout << "Sent " << ITEM_COUNT << " ints " << NUM_ITERS << " times" << endl;
-		//cout << "Runtime: " << duration_cast<microseconds>(end - begin).count() << " us" << endl;
-	} else {
-		assert(rank == 1);
-
-		for (size_t i = 0; i < NUM_ITERS; i++) {
-			int items_received = 0;
-			MPI_Status status;
-
-			MPI_Recv(buf, ITEM_COUNT_VECT[ii], MPI_INT, /* source */ 0,
-				MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-			MPI_Get_count(&status, MPI_INT, &items_received);
-
-			MPI_Send(&items_received, 1, MPI_INT, /* dst */ 0,
-			    /* tag */ 0, MPI_COMM_WORLD);
-		}
-	}
 	}
 
 	if (rank == 0) {
 		// print the timing output to console:
-		cout << "Runs in microseconds [iter, send_size]:" << endl;
+		//cout << "Runs in microseconds [iter, send_size]:" << endl;
 		for (int i = 0; i < NUM_ITERS; i++) {
 			for (int j = 0; j < (int)ITEM_COUNT_VECT.size(); j++)
 				cout << times[i][j] << " ";

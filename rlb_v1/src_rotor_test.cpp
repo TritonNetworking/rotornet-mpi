@@ -17,7 +17,10 @@
 //const int ITEM_COUNT = 62500000; // = 250 MB
 
 // best for IntelMPI 2018:
-const int ITEM_COUNT = 32768; // = 131 kB
+//const int ITEM_COUNT = 32768; // = 131 kB
+
+// best for OMPI on sysnet machines:
+const int ITEM_COUNT = 262144; // = 1 MB (approx)
 
 //const int64_t run_us = 1000999; // total runtime, microseconds
 //const int64_t slot_us = 1000; // slot time, microseconds
@@ -25,8 +28,8 @@ const int ITEM_COUNT = 32768; // = 131 kB
 //const int64_t run_us = 10009999; // total runtime, microseconds
 //const int64_t slot_us = 10000; // slot time, microseconds
 
-const int64_t run_us = 50049; // total runtime, microseconds
-const int64_t slot_us = 50; // slot time, microseconds
+const int64_t run_us = 300299; // total runtime, microseconds
+const int64_t slot_us = 300; // slot time, microseconds
 
 void rotor_test(int size, int rank);
 
@@ -60,7 +63,7 @@ int main(int argc, char* argv[])
 
 void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int * recvbuf, vector<vector<int>> sendto, vector<vector<int>> recvfrom) {
 
-	// debug:
+	// record the time to receive from the perspective of each comm node
 	int64_t slot_start = get_us(); // slot start time (us)
 
 	MPI_Request r_handle; // receive handle
@@ -76,10 +79,6 @@ void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int *
 		/* dst */ sendto[rank - 1][slot % Nmatch], /* tag */ 0,
 		MPI_COMM_WORLD, &s_handle);
 
-	// debug (slow print statment):
-	//cout << "Rank " << rank << " started sending to rank " <<
-	//	sendto[rank - 1][slot] << endl;
-
 	// poll for receive complete
 	int recv_done = 0;
 	MPI_Status status;
@@ -87,51 +86,23 @@ void rotor_kernel(int size, int rank, int slot, int Nmatch, int * sendbuf, int *
 	while (recv_done == 0) {
 		MPI_Test(&r_handle, &recv_done, &status);
 		if (recv_done == 1) {
-			// get how many ints were received:
-			//MPI_Get_count(&status, MPI_INT, &items_received);
-			// block on ACK send:
+			// debug - get how many ints were received:
+			// MPI_Get_count(&status, MPI_INT, &items_received);
 			
 			// debug:
-			//cout << "rank " << rank << ": received " << items_received << " ints, sending ACK to rank 0" << endl			
+			// cout << "rank " << rank << ": received " << items_received << " ints, sending ACK to rank 0" << endl			
 			// cout << slot << " " << rank << " " << get_us() - slot_start << endl;
 
 			int64_t slot_end = get_us();
 			int diff = slot_end - slot_start;
-			
+			// block on ACK send:			
 			MPI_Send(&diff, 1, MPI_INT,
 				0, 0, MPI_COMM_WORLD);
-
-			//MPI_Send(&items_received, 1, MPI_INT,
-			//	0, 0, MPI_COMM_WORLD);
-
 		}
 	}
 
-	// debug (slow print statements):
-	// poll for receive complete and sent complete
-	/*int send_done = 0;
-	while ((recv_done == 0) || (send_done == 0)) {
-		if (recv_done == 0) {
-			MPI_Test(&r_handle, &recv_done,
-				&status);
-			if (recv_done == 1) {
-				cout << "Rank " << rank <<
-				" done receiving " <<
-				get_us() - slot_start <<
-				" us into the slot." << endl;	
-			}
-		}
-		if (send_done == 0) {
-			MPI_Test(&s_handle, &send_done,
-				MPI_STATUS_IGNORE);
-			if (send_done == 1) {
-				cout << "Rank " << rank <<
-				" done sending " <<
-				get_us() - slot_start <<
-				" us into the slot." << endl;
-			}
-		}
-	}*/
+	MPI_Wait(&s_handle, &status); // necessary to avoid random latencies
+
 }
 
 void rotor_test(int size, int rank) {
