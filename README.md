@@ -2,13 +2,21 @@
 
 RotorNet MPI Implementation
 
-## To setup comet for running with the 2018 Intel toolchain
+## Instructions:
 
-module purge
-module load gnutools
-export MODULEPATH=/share/apps/compute/modulefiles:$MODULEPATH
-module load intel/2018.1.163
-module load intelmpi/2018.1.163
+Go to either /microbenchmarks or /rlb_vX
 
-export CXX=mpicxx
-make
+There are a few different scripts for compiling and running on either Comet or Sysnet servers:
+
+Compiling:
+$ ./compile_<...>.sh
+
+Running on Comet:
+$ sbatch go_<...>.sb
+
+Running on Sysnet:
+$ mpirun <flags> <executable>
+
+OR
+
+$ ./go_sysnet.sh
