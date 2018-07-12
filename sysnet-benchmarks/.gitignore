@@ -1,0 +1,7 @@
+# VSCode
+.vscode/
+src/.idea/
+
+build/
+include/
+
